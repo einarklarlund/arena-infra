@@ -48,6 +48,7 @@ jobs:
           host: ${{ secrets.DROPLET_IP }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          envs: GITHUB_REPOSITORY
           script: |
             cd ~/arena-infra
             
@@ -58,9 +59,9 @@ jobs:
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
             export GITHUB_REPOSITORY=$GITHUB_REPOSITORY
-            export ENABLE_CORS=$ENABLE_CORS
-            
             # CORS disabled for prod deployments - it will be set by nginx
             export ENABLE_CORS=false
+
+            # Compose docker images
             docker compose pull
             docker compose up -d
