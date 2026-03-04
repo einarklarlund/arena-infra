@@ -47,7 +47,7 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
-            cd ~/ArenaInfra
+            cd ~/arena-infra
             
             # Pull latest docker-compose file
             git pull origin main
