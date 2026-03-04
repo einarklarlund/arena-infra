@@ -39,6 +39,8 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    env:
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Deploy to Droplet via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -54,6 +56,9 @@ jobs:
             
             # Log into GHCR on the Droplet
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            export GITHUB_REPOSITORY=$GITHUB_REPOSITORY
+            export ENABLE_CORS=$ENABLE_CORS
             
             # CORS disabled for prod deployments - it will be set by nginx
             export ENABLE_CORS=false
