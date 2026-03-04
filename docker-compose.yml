@@ -1,0 +1,45 @@
+services:
+  # Redis: The bridge between the two servers
+  redis:
+    image: redis:alpine
+    container_name: arena-redis
+    restart: always
+    # No 'ports' mapping means it's invisible to the outside world
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - arena-network
+
+  # Main Server (Port 3000)
+  main-server:
+    image: ghcr.io/${GITHUB_REPOSITORY}/main-server:latest
+    build: ./main-server
+    container_name: arena-main-server
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ENABLE_CORS=${ENABLE_CORS:-true}
+    depends_on:
+      - redis
+    networks:
+      - arena-network
+
+  # Signal Server (Port 9001)
+  signal-server:
+    image: ghcr.io/${GITHUB_REPOSITORY}/signal-server:latest
+    build: ./signal-server
+    container_name: arena-signal-server
+    restart: always
+    ports:
+      - "9001:9001"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    networks:
+      - arena-network
+
+networks:
+  arena-network:
+    driver: bridge

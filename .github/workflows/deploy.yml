@@ -1,0 +1,61 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Main Server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./main-server
+          push: true
+          tags: ghcr.io/${{ github.repository }}/main-server:latest
+
+      - name: Build and Push Signal Server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./signal-server
+          push: true
+          tags: ghcr.io/${{ github.repository }}/signal-server:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Droplet via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_IP }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            cd ~/ArenaInfra
+            
+            # Pull latest docker-compose file
+            git pull origin main
+            
+            # Log into GHCR on the Droplet
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            
+            # CORS disabled for prod deployments - it will be set by nginx
+            export ENABLE_CORS=false
+            docker compose pull
+            docker compose up -d
