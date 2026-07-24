@@ -10,10 +10,27 @@ Retiring that map is the point of the ticket, not a side effect. Rewriting the c
 
 **Blocked by:** 03.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The host's offer records its connection id onto the correct session, by the mechanism agreed in ticket 01
-- [ ] The client's answer is stamped with the connection id read from the session
-- [ ] `signalConnectionID` is deleted, along with every read, write, and cleanup of it
-- [ ] The create → join → offer → answer test from ticket 02 still passes unchanged, proving behaviour is identical
-- [ ] An offer that names no live session is logged and dropped, not relayed
+- [x] The host's offer records its connection id onto the correct session, by the mechanism agreed in ticket 01
+- [x] The client's answer is stamped with the connection id read from the session
+- [x] `signalConnectionID` is deleted, along with every read, write, and cleanup of it
+- [x] The create → join → offer → answer test from ticket 02 still passes unchanged, proving behaviour is identical
+- [x] An offer that names no live session is logged and dropped, not relayed
+
+## Comments
+
+The ticket-02 offer/answer test kept every assertion it had, but its `buildOffer`
+call had to grow the echoed token - that is the wire change ticket 01 settled, so
+"unchanged" is read as unchanged behaviour, not an unchanged call site.
+
+Two drop rules beyond the ticket's "no live session" one, both the same anti-spoof
+principle the ticket names: an offer is dropped if the sending socket is not the
+session's host, and if its `targetClientSignalId` disagrees with the session's
+client. The session is authoritative for routing; the offer's target field is now
+a redundant check rather than the route.
+
+The answer (0x05) is unchanged on the wire and so carries no token, so its session
+is found by the (client, host) signal-id pair, restricted to sessions a host has
+already offered on. Newest wins - the same last-write-wins the retired
+`signalConnectionID` map had when a host re-offered to the same client.

@@ -15,6 +15,7 @@ const {
     parseJoinNotify,
     parseOfferToClient,
     parseAnswerToHost,
+    establishJoinAttempt,
 } = require('./harness');
 
 test('a host creates a room and is told its room code', async () => {
@@ -93,9 +94,9 @@ test('the offer reaches the client and the answer reaches the host stamped with 
 
         client.send(buildAttemptToJoinRoom(roomCode));
         await client.next();
-        const { clientSignalId } = parseJoinNotify(await host.next());
+        const { clientSignalId, sessionToken } = parseJoinNotify(await host.next());
 
-        host.send(buildOffer(clientSignalId, connectionId, 'fake-offer-sdp'));
+        host.send(buildOffer(clientSignalId, connectionId, sessionToken, 'fake-offer-sdp'));
 
         const offer = parseOfferToClient(await client.next());
         assert.equal(offer.opcode, OP.receivedOfferFromHost);
@@ -119,5 +120,43 @@ test('the retired 0x06 opcode is unhandled and answered by nobody', async () => 
 
         await peer.expectSilence();
         assert.match(server.log(), /Unknown message type: 6/);
+    });
+});
+
+test('an offer naming no live session is logged and dropped, not relayed', async () => {
+    await withServer(async (server) => {
+        const { host, client, clientSignalId } = await establishJoinAttempt(server);
+
+        host.send(buildOffer(clientSignalId, 7, 'aaaaaaaaaaaaaaaaaaaaaa', 'fake-offer-sdp'));
+
+        await client.expectSilence();
+        await host.expectSilence();
+        assert.match(server.log(), /Offer named no live session/);
+    });
+});
+
+test('an offer from a socket that is not the session host is logged and dropped', async () => {
+    await withServer(async (server) => {
+        const { client, clientSignalId, sessionToken } = await establishJoinAttempt(server);
+        const impostor = await server.connectPeer('impostor');
+
+        impostor.send(buildOffer(clientSignalId, 7, sessionToken, 'spoofed-offer-sdp'));
+
+        await client.expectSilence();
+        await impostor.expectSilence();
+        assert.match(server.log(), /not its host/);
+    });
+});
+
+test('an answer that matches no bound session is logged and dropped', async () => {
+    await withServer(async (server) => {
+        const { host, client } = await establishJoinAttempt(server);
+
+        // No offer has been sent, so no session carries a connection id yet.
+        client.send(buildAnswer(1, 'premature-answer-sdp'));
+
+        await host.expectSilence();
+        await client.expectSilence();
+        assert.match(server.log(), /Answer matched no live session/);
     });
 });

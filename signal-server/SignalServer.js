@@ -26,7 +26,6 @@ function generateID() {
 }
 
 const playerID = {}; //uniqueID - player
-const signalConnectionID = {} //SignalID - ConnectionID
 
 const rooms = {}; //room key - host ws
 
@@ -113,11 +112,6 @@ const app = uWS.App().ws('/Signal', {
                     updateRedisRoom(ws.hostRoomID, ws.playerID);
                 }, 30000); // Heartbeat every 30 seconds
 
-                // Clean up any connections this player was already connected to
-                if(signalConnectionID.hasOwnProperty(ws.playerID)){
-                    delete signalConnectionID[ws.playerID]
-                }
-
                 // Respond to host with room ID
                 const roomIDLength = Buffer.byteLength(roomID);
                 responseBuffer = Buffer.alloc(2 + roomIDLength);
@@ -181,10 +175,30 @@ const app = uWS.App().ws('/Signal', {
 
                 // Read the ID of the connection between the host and connecting client
                 const sendOffer_targetPlayerConnectionID = messageData.readInt32LE(5);
-                const sendOffer_remainingData = messageData.slice(9);
 
-                // Map connecting client ID to the connection ID
-                signalConnectionID[sendOffer_targetPlayerSignalID] = sendOffer_targetPlayerConnectionID
+                // The host echoes the session token it was given at join-attempt
+                const sendOffer_tokenLength = messageData[9];
+                const sendOffer_token = messageData.toString('utf-8', 10, 10 + sendOffer_tokenLength);
+                const sendOffer_remainingData = messageData.slice(10 + sendOffer_tokenLength);
+
+                const sendOffer_session = sessions[sendOffer_token];
+                if (!sendOffer_session) {
+                    console.log(`Offer named no live session (token ${sendOffer_token}) - dropped.`);
+                    break;
+                }
+                // Sender identity is by socket, so the host cannot be impersonated.
+                if (ws.playerID !== sendOffer_session.hostSignalId) {
+                    console.log(`Offer into session ${sendOffer_token} from player ${ws.playerID}, not its host - dropped.`);
+                    break;
+                }
+                if (sendOffer_targetPlayerSignalID !== sendOffer_session.clientSignalId) {
+                    console.log(`Offer into session ${sendOffer_token} targets player ${sendOffer_targetPlayerSignalID}, not its client - dropped.`);
+                    break;
+                }
+
+                // The session owns the connection ID from here on: it is what both
+                // trickle directions stamp, so neither peer can spoof it.
+                sendOffer_session.connectionId = sendOffer_targetPlayerConnectionID;
 
                 // Tell connecting client that a host has sent an offer
                 responseBuffer = Buffer.alloc(1 + 4 + sendOffer_remainingData.length);
@@ -192,7 +206,7 @@ const app = uWS.App().ws('/Signal', {
                 responseBuffer.writeInt32LE(ws.playerID, 1);
                 sendOffer_remainingData.copy(responseBuffer, 5);
 
-                sendData(playerID[sendOffer_targetPlayerSignalID], responseBuffer);
+                sendData(playerID[sendOffer_session.clientSignalId], responseBuffer);
 
                 break;
 
@@ -200,14 +214,22 @@ const app = uWS.App().ws('/Signal', {
                 // Read host's ID
                 const sendAnswer_targetPlayerID = messageData.readInt32LE(1);
                 const sendAnswer_remainingData = messageData.slice(5);
+
+                // The answer carries no token, so find the session it belongs to
+                const sendAnswer_session = findBoundSession(ws.playerID, sendAnswer_targetPlayerID);
+                if (!sendAnswer_session) {
+                    console.log(`Answer matched no live session from player ${ws.playerID} to host ${sendAnswer_targetPlayerID} - dropped.`);
+                    break;
+                }
+
                 responseBuffer = Buffer.alloc(1 + 4 + sendAnswer_remainingData.length);
 
                 // Give the connection ID to the host
                 responseBuffer[0] = receivedAnswerFromClient;
-                responseBuffer.writeInt32LE(signalConnectionID[ws.playerID], 1);
+                responseBuffer.writeInt32LE(sendAnswer_session.connectionId, 1);
                 sendAnswer_remainingData.copy(responseBuffer, 5);
 
-                sendData(playerID[sendAnswer_targetPlayerID], responseBuffer);
+                sendData(playerID[sendAnswer_session.hostSignalId], responseBuffer);
 
                 break;
 
@@ -220,10 +242,6 @@ const app = uWS.App().ws('/Signal', {
 
     close: (ws, code, message) => {
         console.log("Client ["+ ws.playerID +"] closed connection.");
-
-        if(signalConnectionID.hasOwnProperty(ws.playerID)){
-            delete signalConnectionID[ws.playerID]
-        }
 
         delete playerID[ws.playerID];
 
@@ -334,6 +352,25 @@ function mintSession(hostSignalId, clientSignalId) {
     console.log(`Session ${token} minted for host ${hostSignalId}, client ${clientSignalId}. ${Object.keys(sessions).length} live.`);
 
     return token;
+}
+
+/**
+ * The session a client's answer belongs to. The answer carries no token (it
+ * predates them and the contract leaves 0x05 unchanged), so the pair of signal
+ * ids selects it - and only a session the host has already offered on, since
+ * the connection ID being stamped is bound at offer time. Newest wins, which
+ * is what the retired per-player map did when a host re-offered.
+ */
+function findBoundSession(clientSignalId, hostSignalId) {
+    let found;
+    for (const token of Object.keys(sessions)) {
+        const session = sessions[token];
+        if (session.clientSignalId !== clientSignalId) continue;
+        if (session.hostSignalId !== hostSignalId) continue;
+        if (session.connectionId === undefined) continue;
+        if (!found || session.createdAt >= found.createdAt) found = session;
+    }
+    return found;
 }
 
 async function updateRedisRoom(roomID, hostID) {

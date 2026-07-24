@@ -229,11 +229,16 @@ function buildAttemptToJoinRoom(roomCode) {
     return Buffer.concat([Buffer.from([OP.attemptToJoinRoom]), lengthPrefixed(roomCode)]);
 }
 
-function buildOffer(targetClientSignalId, connectionId, sdp) {
+function buildOffer(targetClientSignalId, connectionId, sessionToken, sdp) {
     const ids = Buffer.alloc(8);
     ids.writeInt32LE(targetClientSignalId, 0);
     ids.writeInt32LE(connectionId, 4);
-    return Buffer.concat([Buffer.from([OP.receivedOfferFromHost]), ids, Buffer.from(sdp, 'utf-8')]);
+    return Buffer.concat([
+        Buffer.from([OP.receivedOfferFromHost]),
+        ids,
+        lengthPrefixed(sessionToken),
+        Buffer.from(sdp, 'utf-8'),
+    ]);
 }
 
 function buildAnswer(targetHostSignalId, sdp) {
