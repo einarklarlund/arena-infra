@@ -8,12 +8,25 @@
 
 **Blocked by:** 04 (0x09 stamps the connection id the session only carries after 04).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 0x09 from a session's client relays the candidate to that session's host, stamped with the session's connection id
-- [ ] 0x08 from a session's host relays the candidate to that session's client
-- [ ] A trickle whose sender is neither member of the named session is logged and dropped, with no response of any kind
-- [ ] A trickle naming an unknown or already-swept token is logged and dropped
-- [ ] An empty candidate string relays through both directions unchanged
-- [ ] Host-joins-own-room loopback routes back to the sending socket, on both opcodes, with no special-casing in the server
-- [ ] Candidate contents are never parsed or inspected
+- [x] 0x09 from a session's client relays the candidate to that session's host, stamped with the session's connection id
+- [x] 0x08 from a session's host relays the candidate to that session's client
+- [x] A trickle whose sender is neither member of the named session is logged and dropped, with no response of any kind
+- [x] A trickle naming an unknown or already-swept token is logged and dropped
+- [x] An empty candidate string relays through both directions unchanged
+- [x] Host-joins-own-room loopback routes back to the sending socket, on both opcodes, with no special-casing in the server
+- [x] Candidate contents are never parsed or inspected
+
+## Comments
+
+Both directions are one function taking the opcode as the direction, so the
+membership check, the connection-id stamp and the verbatim relay cannot drift
+apart between them - and the loopback case falls out with no branch, as the
+ticket requires.
+
+One drop rule beyond the ticket's list: a trickle into a session that carries no
+connection id yet (the host has not offered) is logged and dropped, because there
+is nothing to stamp. A well-behaved peer cannot reach it - the client only learns
+the token at join-attempt and only gathers after the offer - but a malformed
+sender would otherwise crash the stamp.

@@ -24,6 +24,8 @@ const OP = {
     receivedOfferFromHost: 0x04,
     receivedAnswerFromClient: 0x05,
     ping: 0x07,
+    trickleToClient: 0x08,
+    trickleToHost: 0x09,
 };
 
 const DEFAULT_TIMEOUT_MS = 3000;
@@ -247,6 +249,19 @@ function buildAnswer(targetHostSignalId, sdp) {
     return Buffer.concat([Buffer.from([OP.receivedAnswerFromClient]), id, Buffer.from(sdp, 'utf-8')]);
 }
 
+/**
+ * A candidate, named by session token. `opcode` is OP.trickleToClient for the
+ * host's candidates or OP.trickleToHost for the client's; an empty candidate
+ * string is the end-of-candidates marker.
+ */
+function buildTrickle(opcode, sessionToken, candidate) {
+    return Buffer.concat([
+        Buffer.from([opcode]),
+        lengthPrefixed(sessionToken),
+        Buffer.from(candidate, 'utf-8'),
+    ]);
+}
+
 // --- message parsers --------------------------------------------------------
 
 function parseCreateRoomResponse(message) {
@@ -288,6 +303,14 @@ function parseAnswerToHost(message) {
     };
 }
 
+function parseTrickle(message) {
+    return {
+        opcode: message[0],
+        connectionId: message.readInt32LE(1),
+        candidate: message.toString('utf-8', 5),
+    };
+}
+
 /**
  * Drive create-room + join-attempt, the preamble almost every test needs.
  * Returns both peers plus the routing state they now share.
@@ -318,6 +341,19 @@ async function establishJoinAttempt(server) {
 }
 
 /**
+ * Drive the handshake one step further, through the host's offer, so the
+ * session carries a connection id and candidates can flow.
+ */
+async function establishOfferedAttempt(server, { connectionId = 42 } = {}) {
+    const attempt = await establishJoinAttempt(server);
+
+    attempt.host.send(buildOffer(attempt.clientSignalId, connectionId, attempt.sessionToken, 'offer-sdp'));
+    const offer = parseOfferToClient(await attempt.client.next());
+
+    return { ...attempt, connectionId, hostSignalId: offer.hostSignalId };
+}
+
+/**
  * How many signaling sessions the server currently holds, read from the log
  * line it writes whenever the table changes. The session table is internal
  * routing state with no wire representation, and giving it one would mean
@@ -340,11 +376,14 @@ module.exports = {
     buildAttemptToJoinRoom,
     buildOffer,
     buildAnswer,
+    buildTrickle,
     parseCreateRoomResponse,
     parseJoinRoomCallback,
     parseJoinNotify,
     parseOfferToClient,
     parseAnswerToHost,
+    parseTrickle,
     establishJoinAttempt,
+    establishOfferedAttempt,
     liveSessionCount,
 };

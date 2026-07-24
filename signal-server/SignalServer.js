@@ -41,6 +41,8 @@ const receivedOfferFromHost = 0x04; //may contain error details if not allowed!
 const receivedAnswerFromClient = 0x05; //client has received the offer, has started to join, and is sending answer
 // 0x06 is retired - it was the never-implemented trickleICE scaffold. Do not reuse the byte.
 const ping = 0x07; //simple manual ping
+const trickleToClient = 0x08; //host's candidate for the client of the named session
+const trickleToHost = 0x09; //client's candidate for the host of the named session
 
 
 
@@ -233,6 +235,14 @@ const app = uWS.App().ws('/Signal', {
 
                 break;
 
+            case trickleToClient: // A host's candidate, bound for its session's client
+                relayCandidate(ws, messageData, trickleToClient);
+                break;
+
+            case trickleToHost: // A client's candidate, bound for its session's host
+                relayCandidate(ws, messageData, trickleToHost);
+                break;
+
             case ping:
                 break;
 
@@ -352,6 +362,54 @@ function mintSession(hostSignalId, clientSignalId) {
     console.log(`Session ${token} minted for host ${hostSignalId}, client ${clientSignalId}. ${Object.keys(sessions).length} live.`);
 
     return token;
+}
+
+/**
+ * Relay one candidate to the opposite member of the session the token names,
+ * stamping the session's connection id so neither peer can spoof which
+ * connection a candidate belongs to.
+ *
+ * The message carries no target - the token alone selects the route - so the
+ * membership check by socket is the only thing standing between a prober and
+ * another pair's routing state. A rejected trickle is logged and dropped with
+ * no response of any kind: answering would tell the sender the token is live.
+ *
+ * Loopback needs no special case. When a host joins its own room both roles are
+ * the same socket, both checks pass for it, and the candidate routes back to
+ * it - the opcode is what the game side uses to pick the local peer connection.
+ *
+ * The candidate itself is never parsed. It is the remainder of the buffer, so
+ * zero remaining bytes is the end-of-candidates marker, relayed like any other.
+ */
+function relayCandidate(ws, messageData, direction) {
+    const tokenLength = messageData[1];
+    const token = messageData.toString('utf-8', 2, 2 + tokenLength);
+    const candidateData = messageData.slice(2 + tokenLength);
+
+    const session = sessions[token];
+    if (!session) {
+        console.log(`Trickle named no live session (token ${token}) - dropped.`);
+        return;
+    }
+
+    const sender = direction === trickleToClient ? session.hostSignalId : session.clientSignalId;
+    const recipient = direction === trickleToClient ? session.clientSignalId : session.hostSignalId;
+
+    if (ws.playerID !== sender) {
+        console.log(`Trickle into session ${token} from player ${ws.playerID}, not its ${direction === trickleToClient ? 'host' : 'client'} - dropped.`);
+        return;
+    }
+    if (session.connectionId === undefined) {
+        console.log(`Trickle into session ${token} carries no connection id yet - dropped.`);
+        return;
+    }
+
+    const responseBuffer = Buffer.alloc(1 + 4 + candidateData.length);
+    responseBuffer[0] = direction;
+    responseBuffer.writeInt32LE(session.connectionId, 1);
+    candidateData.copy(responseBuffer, 5);
+
+    sendData(playerID[recipient], responseBuffer);
 }
 
 /**
