@@ -8,11 +8,18 @@ The token names a session for *routing*; it does not authenticate. Authenticatio
 
 **Blocked by:** 01 (the token's wire form is a cross-repo contract), 02 (the harness this is verified in).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Joining an existing room mints a session recording the host's and the client's signal ids, with the connection id not yet set
-- [ ] The token is delivered to the client in the `joinRoomCallback` success response, in the wire form agreed in ticket 01
-- [ ] The token is delivered to the host in the join notify, alongside the client's signal id as today
-- [ ] No additional round trip is introduced
-- [ ] Joining a room that does not exist behaves exactly as before, and mints nothing
-- [ ] Test asserts both peers receive the same token, and that two concurrent join attempts get distinct tokens
+- [x] Joining an existing room mints a session recording the host's and the client's signal ids, with the connection id not yet set
+- [x] The token is delivered to the client in the `joinRoomCallback` success response, in the wire form agreed in ticket 01
+- [x] The token is delivered to the host in the join notify, alongside the client's signal id as today
+- [x] No additional round trip is introduced
+- [x] Joining a room that does not exist behaves exactly as before, and mints nothing
+- [x] Test asserts both peers receive the same token, and that two concurrent join attempts get distinct tokens
+
+## Comments
+
+The session table has no wire representation - exposing one would hand a prober a
+surface for the sake of a test - so the server logs a one-line record whenever the
+table changes (`Session <token> minted for host <h>, client <c>. N live.`) and the
+harness reads the live count from that log.

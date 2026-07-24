@@ -10,6 +10,7 @@
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
+const assert = require('node:assert/strict');
 const WebSocket = require('ws');
 
 const SERVER_ENTRY = path.join(__dirname, '..', 'SignalServer.js');
@@ -248,11 +249,22 @@ function parseCreateRoomResponse(message) {
 }
 
 function parseJoinRoomCallback(message) {
-    return { opcode: message[0], ok: message[1] === 1 };
+    const ok = message[1] === 1;
+    return {
+        opcode: message[0],
+        ok,
+        // Only the success response names a session.
+        sessionToken: ok ? readLengthPrefixed(message, 2).value : undefined,
+        length: message.length,
+    };
 }
 
 function parseJoinNotify(message) {
-    return { opcode: message[0], clientSignalId: message.readInt32LE(1) };
+    return {
+        opcode: message[0],
+        clientSignalId: message.readInt32LE(1),
+        sessionToken: readLengthPrefixed(message, 5).value,
+    };
 }
 
 function parseOfferToClient(message) {
@@ -286,7 +298,30 @@ async function establishJoinAttempt(server) {
     const callback = parseJoinRoomCallback(await client.next());
     const notify = parseJoinNotify(await host.next());
 
-    return { host, client, roomCode, callback, notify, clientSignalId: notify.clientSignalId };
+    assert.equal(callback.sessionToken, notify.sessionToken,
+        'both peers must be handed the same session token');
+
+    return {
+        host,
+        client,
+        roomCode,
+        callback,
+        notify,
+        clientSignalId: notify.clientSignalId,
+        sessionToken: callback.sessionToken,
+    };
+}
+
+/**
+ * How many signaling sessions the server currently holds, read from the log
+ * line it writes whenever the table changes. The session table is internal
+ * routing state with no wire representation, and giving it one would mean
+ * exposing a probe surface for the sake of a test.
+ */
+function liveSessionCount(server) {
+    const matches = server.log().match(/(\d+) live\./g);
+    if (!matches) return 0;
+    return parseInt(matches[matches.length - 1], 10);
 }
 
 module.exports = {
@@ -306,4 +341,5 @@ module.exports = {
     parseOfferToClient,
     parseAnswerToHost,
     establishJoinAttempt,
+    liveSessionCount,
 };

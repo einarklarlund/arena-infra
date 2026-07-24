@@ -30,6 +30,11 @@ const signalConnectionID = {} //SignalID - ConnectionID
 
 const rooms = {}; //room key - host ws
 
+// Signaling sessions: the server's authoritative record of one peer-connection
+// attempt, named on the wire by an opaque token. Routing state only - it does
+// not identify a player, and is swept when the attempt establishes or fails.
+const sessions = {}; //session token - { hostSignalId, clientSignalId, connectionId, createdAt }
+
 const createRoom = 0x01; //responded to directly with the room code
 const attemptToJoinRoom = 0x02; //responded to directly if join code is valid and if host has been notified
 const joinRoomCallback = 0x03; //this is the callback for the client who initiated the attempt
@@ -132,18 +137,30 @@ const app = uWS.App().ws('/Signal', {
                     .toUpperCase();
 
                 if (rooms.hasOwnProperty(joinRoom_RoomID)) {
-                    // MISSING - cleanup any room the rooms that the client was already 
+                    // MISSING - cleanup any room the rooms that the client was already
                     // hosting and reset hostRoomID ONLY IF not connecting to its own room
 
-                    // Prepare success response for connecting client
-                    responseBuffer = Buffer.alloc(2);
+                    // Mint the signaling session for this attempt. The host assigns
+                    // the connection ID later, at offer time.
+                    const joinRoom_SessionToken = mintSession(
+                        rooms[joinRoom_RoomID].playerID,
+                        ws.playerID
+                    );
+                    const joinRoom_TokenLength = Buffer.byteLength(joinRoom_SessionToken);
+
+                    // Prepare success response for connecting client, naming the session
+                    responseBuffer = Buffer.alloc(2 + 1 + joinRoom_TokenLength);
                     responseBuffer[0] = joinRoomCallback;
                     responseBuffer[1] = 1;
+                    responseBuffer[2] = joinRoom_TokenLength;
+                    responseBuffer.write(joinRoom_SessionToken, 3, 'utf-8');
 
-                    // Notify host that a client is connecting
-                    notifyBuffer = Buffer.alloc(1+4);
+                    // Notify host that a client is connecting, naming the same session
+                    notifyBuffer = Buffer.alloc(1 + 4 + 1 + joinRoom_TokenLength);
                     notifyBuffer[0] = attemptToJoinRoom;
                     notifyBuffer.writeInt32LE(ws.playerID, 1);
+                    notifyBuffer[5] = joinRoom_TokenLength;
+                    notifyBuffer.write(joinRoom_SessionToken, 6, 'utf-8');
 
                     sendData(playerID[rooms[joinRoom_RoomID].playerID], notifyBuffer);
                 } else {
@@ -278,6 +295,45 @@ function generateUniqueKey() {
     } while (rooms.hasOwnProperty(key));
 
     return key;
+}
+
+// 22 chars from a 62-char alphabet is ~131 bits. Far wider than the 5-char room
+// code on purpose: a room-code collision is a UX annoyance a user retries past,
+// a token collision silently crosses two peers' routing state.
+const SESSION_TOKEN_LENGTH = 22;
+const SESSION_TOKEN_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+function generateSessionToken() {
+    const generateToken = () => {
+        let token = '';
+        for (let i = 0; i < SESSION_TOKEN_LENGTH; i++) {
+            token += SESSION_TOKEN_CHARS.charAt(Math.floor(Math.random() * SESSION_TOKEN_CHARS.length));
+        }
+        return token;
+    };
+
+    let token;
+    do {
+        token = generateToken();
+    } while (sessions.hasOwnProperty(token));
+
+    return token;
+}
+
+/** Record one peer-connection attempt and return the token that names it. */
+function mintSession(hostSignalId, clientSignalId) {
+    const token = generateSessionToken();
+
+    sessions[token] = {
+        hostSignalId: hostSignalId,
+        clientSignalId: clientSignalId,
+        connectionId: undefined, // the host assigns it, at offer time
+        createdAt: Date.now(),
+    };
+
+    console.log(`Session ${token} minted for host ${hostSignalId}, client ${clientSignalId}. ${Object.keys(sessions).length} live.`);
+
+    return token;
 }
 
 async function updateRedisRoom(roomID, hostID) {
