@@ -4,6 +4,10 @@ const Redis = require('ioredis');
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const redis = new Redis(redisUrl);
 
+// Overridable so a test harness can run an isolated instance alongside a
+// developer's own, consistent with REDIS_URL / ENABLE_CORS.
+const listenPort = parseInt(process.env.SIGNAL_PORT, 10) || 9001;
+
 redis.on('error', (err) => {
     console.warn('[ioredis] Waiting for Redis connection...', err.message);
 });
@@ -31,7 +35,7 @@ const attemptToJoinRoom = 0x02; //responded to directly if join code is valid an
 const joinRoomCallback = 0x03; //this is the callback for the client who initiated the attempt
 const receivedOfferFromHost = 0x04; //may contain error details if not allowed!
 const receivedAnswerFromClient = 0x05; //client has received the offer, has started to join, and is sending answer
-const trickleICE = 0x06;
+// 0x06 is retired - it was the never-implemented trickleICE scaffold. Do not reuse the byte.
 const ping = 0x07; //simple manual ping
 
 
@@ -190,21 +194,6 @@ const app = uWS.App().ws('/Signal', {
 
                 break;
 
-            case trickleICE:
-                //Not Implemented
-
-                const sendICE_targetPlayerID = messageData.readInt32LE(1);
-                const remainingData = messageData.slice(5);
-                responseBuffer = Buffer.alloc(1 + 4 + remainingData.length);
-
-                responseBuffer[0] = trickleICE;
-                responseBuffer.writeInt32LE(signalConnectionID[ws.playerID], 1);
-                remainingData.copy(responseBuffer, 5);
-
-                sendData(playerID[sendICE_targetPlayerID], responseBuffer);
-
-                break;
-
             case ping:
                 break;
 
@@ -250,11 +239,12 @@ const app = uWS.App().ws('/Signal', {
         console.log("Subscription event:", topic, newCount, oldCount);
     }
 
-}).listen(9001, (token) => {
+}).listen(listenPort, (token) => {
     if (token) {
-        console.log('Server listening on port 9001');
+        console.log(`Server listening on port ${listenPort}`);
     } else {
-        console.log('Failed to listen on port 9001');
+        console.log(`Failed to listen on port ${listenPort}`);
+        process.exit(1);
     }
 });
 
@@ -300,9 +290,19 @@ async function updateRedisRoom(roomID, hostID) {
     };
 
     // Set with a 60-second TTL. If no update happens, it expires.
-    await redis.set(key, JSON.stringify(roomMetadata), 'EX', 60);
+    // Redis is discovery state only - no signaling logic reads it, so a
+    // failure here must never take the relay down with it.
+    try {
+        await redis.set(key, JSON.stringify(roomMetadata), 'EX', 60);
+    } catch (err) {
+        console.warn('[ioredis] Could not mirror room', roomID, '-', err.message);
+    }
 }
 
 async function removeRedisRoom(roomID) {
-    await redis.del(`room:${roomID}`);
+    try {
+        await redis.del(`room:${roomID}`);
+    } catch (err) {
+        console.warn('[ioredis] Could not remove room', roomID, '-', err.message);
+    }
 }

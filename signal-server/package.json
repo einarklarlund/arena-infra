@@ -4,15 +4,21 @@
   "description": "WebRTC Signaling server for Arena FPS",
   "main": "SignalServer.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/",
     "start": "node SignalServer.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=16 <22"
+  },
   "dependencies": {
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.40.0",
-    "ioredis": "^5.3.2"
+    "ioredis": "^5.3.2",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.40.0"
+  },
+  "devDependencies": {
+    "ws": "^8.21.1"
   }
 }

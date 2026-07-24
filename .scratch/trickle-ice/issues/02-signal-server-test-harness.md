@@ -13,11 +13,17 @@ Also in this ticket: delete the `trickleICE` (0x06) case. It is dead scaffold th
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `npm test` in `signal-server/` runs the routing test and exits non-zero on failure
-- [ ] The harness spawns a server instance on a port it chooses, and reaps it on completion and on failure
-- [ ] Test covers create room → join room → offer → answer, asserting the messages each peer receives
-- [ ] Tests pass with no Redis running
-- [ ] Listen port is env-overridable, defaulting to 9001
-- [ ] The 0x06 `trickleICE` case is deleted and the byte is left unused
+- [x] `npm test` in `signal-server/` runs the routing test and exits non-zero on failure
+- [x] The harness spawns a server instance on a port it chooses, and reaps it on completion and on failure
+- [x] Test covers create room → join room → offer → answer, asserting the messages each peer receives
+- [x] Tests pass with no Redis running
+- [x] Listen port is env-overridable, defaulting to 9001
+- [x] The 0x06 `trickleICE` case is deleted and the byte is left unused
+
+## Comments
+
+**Node version.** The harness runs under the Node the deployment image uses (`node:20-slim`, per `signal-server/Dockerfile`); `package.json` now declares `engines: node >=16 <22`. `uWebSockets.js` v20.40.0 ships prebuilt binaries only for Node 16/18/20/21, and the newer uWS releases that add Node 22/24 binaries have dropped Node 20 — so bumping it to run tests on a newer local Node would break the deploy image. Run `nvm use 20` before `npm test`.
+
+**Redis.** The harness points `REDIS_URL` at a dead port on purpose, which surfaced that an unreachable Redis could reject a queued `set`/`del` and kill the server with an unhandled rejection. Both Redis helpers now catch and warn — Redis is discovery state and must never take the relay down.

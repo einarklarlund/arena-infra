@@ -82,4 +82,4 @@ This fills in detail ADR 0001 deliberately left open (it fixes the token's encod
 - **Integration:** covered from the game side — `ArenaURP`'s standalone PlayMode ICE test launches a real signal-server instance, and the manual `deploy_local.sh` two-browser join exercises the full path. Ensure the server starts cleanly for a test harness to spawn/reap (it already `listen`s on 9001; make the port overridable via env if the test needs isolation).
 
 ## Deploy note
-No `docker-compose.yml` change required for trickle itself (no new service, no TURN). If the Node test needs a configurable port, thread it through env consistently with `REDIS_URL` / `ENABLE_CORS`.
+No `docker-compose.yml` change required for trickle itself (no new service, no TURN). The listen port is now read from `SIGNAL_PORT`, defaulting to 9001, so the compose file's fixed `9001:9001` mapping is unaffected; the test harness sets it to an ephemeral port for isolation.
