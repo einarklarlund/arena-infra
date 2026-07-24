@@ -32,7 +32,7 @@ const rooms = {}; //room key - host ws
 // Signaling sessions: the server's authoritative record of one peer-connection
 // attempt, named on the wire by an opaque token. Routing state only - it does
 // not identify a player, and is swept when the attempt establishes or fails.
-const sessions = {}; //session token - { hostSignalId, clientSignalId, connectionId, createdAt }
+const sessions = {}; //session token - { hostSignalId, clientSignalId, connectionId, createdAt, hostDoneGathering, clientDoneGathering }
 
 const createRoom = 0x01; //responded to directly with the room code
 const attemptToJoinRoom = 0x02; //responded to directly if join code is valid and if host has been notified
@@ -255,6 +255,9 @@ const app = uWS.App().ws('/Signal', {
 
         delete playerID[ws.playerID];
 
+        // Every attempt this socket was a member of is over.
+        sweepSessionsOfPlayer(ws.playerID);
+
         if(ws.hostRoomID != -1){
             removeRedisRoom(ws.hostRoomID);
             clearInterval(ws.redisHeartbeat);
@@ -357,12 +360,52 @@ function mintSession(hostSignalId, clientSignalId) {
         clientSignalId: clientSignalId,
         connectionId: undefined, // the host assigns it, at offer time
         createdAt: Date.now(),
+        hostDoneGathering: false,
+        clientDoneGathering: false,
     };
 
     console.log(`Session ${token} minted for host ${hostSignalId}, client ${clientSignalId}. ${Object.keys(sessions).length} live.`);
 
     return token;
 }
+
+/**
+ * A signaling session is routing state for one attempt and must not outlive it.
+ * It is swept when the attempt establishes or fails, never merely because the
+ * answer was relayed - candidates keep flowing after the answer, which is the
+ * whole point of trickle.
+ */
+function sweepSession(token, reason) {
+    if (!sessions.hasOwnProperty(token)) return;
+
+    delete sessions[token];
+    console.log(`Session ${token} swept (${reason}). ${Object.keys(sessions).length} live.`);
+}
+
+/** Either member socket going away ends the attempt. */
+function sweepSessionsOfPlayer(signalId) {
+    for (const token of Object.keys(sessions)) {
+        const session = sessions[token];
+        if (session.hostSignalId === signalId || session.clientSignalId === signalId) {
+            sweepSession(token, `player ${signalId} disconnected`);
+        }
+    }
+}
+
+// Backstop against unbounded growth: a peer can mint a session per join attempt
+// and then never signal again. Overridable so tests need not wait out the
+// default, consistent with SIGNAL_PORT / REDIS_URL.
+const SESSION_TTL_MS = parseInt(process.env.SESSION_TTL_MS, 10) || 5 * 60 * 1000;
+const SESSION_SWEEP_INTERVAL_MS = Math.max(100, Math.floor(SESSION_TTL_MS / 4));
+
+setInterval(() => {
+    const expiredBefore = Date.now() - SESSION_TTL_MS;
+    for (const token of Object.keys(sessions)) {
+        if (sessions[token].createdAt <= expiredBefore) {
+            sweepSession(token, 'expired');
+        }
+    }
+}, SESSION_SWEEP_INTERVAL_MS);
 
 /**
  * Relay one candidate to the opposite member of the session the token names,
@@ -410,6 +453,17 @@ function relayCandidate(ws, messageData, direction) {
     candidateData.copy(responseBuffer, 5);
 
     sendData(playerID[recipient], responseBuffer);
+
+    // An empty candidate is end-of-candidates. Once both peers have sent theirs
+    // the attempt has concluded gathering and the route is no longer needed.
+    if (candidateData.length === 0) {
+        if (direction === trickleToClient) session.hostDoneGathering = true;
+        else session.clientDoneGathering = true;
+
+        if (session.hostDoneGathering && session.clientDoneGathering) {
+            sweepSession(token, 'both peers finished gathering');
+        }
+    }
 }
 
 /**

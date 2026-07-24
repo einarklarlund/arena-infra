@@ -14,12 +14,27 @@ The token ID space is deliberately built wider than this ticket needs. The grace
 
 **Blocked by:** 05 (the end-of-candidates trigger depends on the trickle path existing).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A session is deleted when either its host or its client socket closes
-- [ ] A session is deleted once end-of-candidates has been seen in both directions
-- [ ] A session is never deleted merely because the answer was relayed
-- [ ] Abandoned sessions are TTL-swept or capped, so repeated join attempts cannot grow the table without bound
-- [ ] Test drives a full attempt to completion and asserts the session table is empty afterwards
-- [ ] Test drives an abandoned attempt and asserts it does not persist
-- [ ] No grace window and no reclaim opcode are introduced
+- [x] A session is deleted when either its host or its client socket closes
+- [x] A session is deleted once end-of-candidates has been seen in both directions
+- [x] A session is never deleted merely because the answer was relayed
+- [x] Abandoned sessions are TTL-swept or capped, so repeated join attempts cannot grow the table without bound
+- [x] Test drives a full attempt to completion and asserts the session table is empty afterwards
+- [x] Test drives an abandoned attempt and asserts it does not persist
+- [x] No grace window and no reclaim opcode are introduced
+
+## Comments
+
+The TTL backstop is `SESSION_TTL_MS` (default 5 minutes), swept on an interval of
+a quarter of it. It is overridable by environment - the same way `SIGNAL_PORT` and
+`REDIS_URL` are - because otherwise the abandoned-attempt test would have to wait
+out the default.
+
+TTL runs from mint time as the ticket says, so a gather lasting longer than the TTL
+would lose its route. Five minutes is far beyond any real gather, but it is the one
+place this design trades a hard cap for a soft one.
+
+`docs/plans/trickle-ice.md` S5 said to sweep when the answer completes; this ticket
+overrides that, and the plan has been corrected to match rather than left to
+contradict the tickets.

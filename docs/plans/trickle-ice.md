@@ -52,7 +52,7 @@ This fills in detail ADR 0001 deliberately left open (it fixes the token's encod
 ## Work items
 
 ### S1 — Session table
-- Add a `sessions` map (token → `{ hostSignalId, clientSignalId, connectionId, createdAt }`), alongside the existing `rooms` / `playerID` / `signalConnectionID` maps.
+- Add a `sessions` map (token → `{ hostSignalId, clientSignalId, connectionId, createdAt }`), alongside the existing `rooms` / `playerID` maps. (`signalConnectionID` is retired by S3, so the session table replaces it rather than sitting beside it.)
 - A token generator (reuse the `generateUniqueKey` style, but from a larger space than the 5-char room code — collisions here are a routing bug, not a UX annoyance).
 
 ### S2 — Mint on join-attempt (`attemptToJoinRoom`, `SignalServer.js:123`)
@@ -70,7 +70,8 @@ This fills in detail ADR 0001 deliberately left open (it fixes the token's encod
 - **Loopback:** when host and client are the same socket (host joins its own room), both checks pass for that socket and the message routes back to it; the opcode (0x08 vs 0x09) is what the game side uses to pick the right local peer connection, so the server needs no special case.
 
 ### S5 — Lifecycle
-- Sweep the session when its peer connection is established or the attempt fails. Minimum viable now: delete the session on `close` for either member socket (`:215`), and when the answer completes the attempt.
+- Sweep the session when its peer connection is established or the attempt fails. Three triggers: `close` on either member socket, both directions having signalled end-of-candidates, and a TTL backstop from mint time (`SESSION_TTL_MS`, default 5 minutes).
+- **Corrected during build (ticket 06):** this section originally also said to sweep when the answer completes the attempt. That is wrong — candidates keep flowing after the answer, which is the point of trickle, so sweeping there would drop the session mid-gather. Ticket 06 overrides it and the answer is not a sweep trigger.
 - **Deferred (with reconnect, not now):** the grace window that holds a session past socket close, and a reclaim opcode. Build only the token + table now; ADR 0001's invariant is that reclaim can later re-open a route to an existing `connectionId`.
 - Guard against unbounded growth even pre-grace-window: a client spamming `attemptToJoinRoom` mints sessions — cap or TTL-sweep abandoned ones so the map cannot leak.
 
@@ -79,6 +80,7 @@ This fills in detail ADR 0001 deliberately left open (it fixes the token's encod
 ## Verification
 
 - **Node routing test** (new, in `signal-server/`): drive fake WebSocket clients (a `ws` mock or the `ws` client lib against a test instance) — assert that (a) join-attempt returns a token to the client and notifies the host with it, (b) 0x08/0x09 relay to the correct opposite socket with `connectionId` stamped, (c) a trickle from a non-member socket is **rejected**, (d) the loopback host-joins-own-room case routes. No WebRTC / no real ICE involved — this is pure relay logic and is the layer with the trickiest new code.
+- **Built as** `signal-server/test/` (`npm test`, Node's own test runner): `harness.js` spawns a real server on an ephemeral port with `REDIS_URL` pointed at a dead port, drives it with `ws` clients, and reaps it; `routing.test.js` / `session.test.js` / `trickle.test.js` / `lifecycle.test.js` hold the assertions. Requires Node 20 — `uWebSockets.js` v20.40.0 ships no binary for newer runtimes, and the releases that do have dropped the Node 20 the deploy image uses.
 - **Integration:** covered from the game side — `ArenaURP`'s standalone PlayMode ICE test launches a real signal-server instance, and the manual `deploy_local.sh` two-browser join exercises the full path. Ensure the server starts cleanly for a test harness to spawn/reap (it already `listen`s on 9001; make the port overridable via env if the test needs isolation).
 
 ## Deploy note
