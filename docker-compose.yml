@@ -6,6 +6,11 @@ services:
     restart: always
     # No 'ports' mapping means it's invisible to the outside world
     command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - arena-network
 
@@ -21,7 +26,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - ENABLE_CORS=${ENABLE_CORS:-true}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - arena-network
 
@@ -36,7 +42,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - arena-network
 
