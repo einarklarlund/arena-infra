@@ -20,7 +20,32 @@
 | **0x09** | `trickleToHost` | client→host: look up session by token, verify sender is the session's client, relay candidate to the host stamping the session's `connectionId` |
 | ~~0x06~~ | ~~`trickleICE`~~ | **deleted** — dead scaffold; do not reuse the byte |
 
-Session token wire form (length-prefixed UTF-8 vs fixed width) is **one shared decision** with the `SignalManager.cs` side — agree it before either repo codes the (de)serializer. An empty candidate string is the end-of-candidates marker and is relayed like any other candidate.
+### Settled cross-repo contract (ticket 01)
+
+Both decisions ticket 01 held open are now closed. `ArenaURP/docs/plans/trickle-ice.md` states the identical contract; neither repo may code a (de)serializer against anything else.
+
+**1. Session token wire form — length-prefixed UTF-8.** The token is opaque ASCII, **22 characters** drawn from a 62-char alphabet (`A–Z a–z 0–9`), which is ~131 bits against the room code's 5 chars — a room-code collision is a UX annoyance, a token collision silently crosses two peers' routing state. On the wire it is **always** framed exactly like the room code already is: one `uint8` length byte, then that many UTF-8 bytes. Never fixed-width, never null-terminated. Written `[tok]` below.
+
+**2. Offer-to-session correlation — the host echoes the token on its offer.** The server does **not** correlate by the (host, client) pair it already knows. The host must already hold the token at offer time in order to address its `trickleToClient` (0x08) messages, so echoing it costs one length-prefixed field and buys the server a direct map lookup instead of a scan — with no ambiguity if the same client attempts the same room twice.
+
+Byte layouts (integers little-endian, as today):
+
+| Message | Direction | Layout |
+|---|---|---|
+| `joinRoomCallback` 0x03 — success | server→client | `0x03` `0x01` `[tok]` |
+| `joinRoomCallback` 0x03 — failure | server→client | `0x03` `0x00` *(unchanged)* |
+| `attemptToJoinRoom` 0x02 — host notify | server→host | `0x02` `int32 clientSignalId` `[tok]` |
+| `receivedOfferFromHost` 0x04 | host→server | `0x04` `int32 targetClientSignalId` `int32 connectionId` `[tok]` `sdp…` |
+| `receivedOfferFromHost` 0x04 | server→client | `0x04` `int32 hostSignalId` `sdp…` *(unchanged)* |
+| `receivedAnswerFromClient` 0x05 | both | *(unchanged)* |
+| `trickleToClient` 0x08 | host→server | `0x08` `[tok]` `candidate…` |
+| `trickleToClient` 0x08 | server→client | `0x08` `int32 connectionId` `candidate…` |
+| `trickleToHost` 0x09 | client→server | `0x09` `[tok]` `candidate…` |
+| `trickleToHost` 0x09 | server→host | `0x09` `int32 connectionId` `candidate…` |
+
+A peer→server trickle carries **no target player id** — the token alone selects the route, which is precisely what makes the membership check the only way in. `candidate…` is the remainder of the buffer read as UTF-8, so **zero remaining bytes is the end-of-candidates marker**; it is relayed like any other candidate and never inspected. The server stamps `connectionId` on **both** outbound directions so the two peers share one parser: the host uses it to select the connection, the client ignores it (it has exactly one connection to the host).
+
+This fills in detail ADR 0001 deliberately left open (it fixes the token's encoding and the offer's correlation mechanism) without contradicting or extending its decision, so ADR 0001 is unchanged.
 
 ---
 
@@ -35,7 +60,7 @@ Session token wire form (length-prefixed UTF-8 vs fixed width) is **one shared d
 - Include the token in **both** replies already sent: the client's `joinRoomCallback` (0x03) success response, and the host notify (currently `attemptToJoinRoom` 0x02 with the client's signal id). No new round trip.
 
 ### S3 — Bind connectionId at offer time (`receivedOfferFromHost`, `SignalServer.js:157`)
-- The host's offer already carries its `connectionId`. Record it onto the session (the host must also echo the session token on the offer, or the server correlates by (hostSignalId, clientSignalId) — pick one and mirror it in the game plan).
+- The host's offer already carries its `connectionId`, and now also echoes the session token (settled in ticket 01). Look the session up by that token and record `connectionId` onto it. An offer naming no live session is logged and dropped, not relayed.
 - Retire the `signalConnectionID` rewrite: with the session holding `connectionId`, the answer (0x05) and both trickle directions stamp it from the session instead of the old per-player map. Delete `signalConnectionID` once nothing reads it.
 
 ### S4 — Route trickle both ways (new 0x08 / 0x09; delete 0x06 at `:193`)

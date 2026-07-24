@@ -11,9 +11,16 @@ The outcome is recorded in this repo's trickle-ice plan and, if it changes the s
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-human
+**Status:** done
 
-- [ ] Token wire form decided and written into `docs/plans/trickle-ice.md`, replacing the "one shared decision" note
-- [ ] Offer-to-session correlation decided and written into the same plan, replacing the "pick one and mirror it" note
-- [ ] `ArenaURP`'s trickle-ice plan states the identical contract for both
-- [ ] Any decision that contradicts or extends ADR 0001 is reflected there; a decision that merely fills in a detail is not
+**Resolution**
+
+1. **Token wire form: length-prefixed UTF-8**, framed exactly like the room code — one `uint8` length byte then that many UTF-8 bytes. The token is 22 chars from a 62-char alphabet. Chosen over fixed width because it is the framing both codebases already read and write for the room code, so neither side grows a second string convention.
+2. **Offer-to-session correlation: the host echoes the token on its offer.** Chosen over server-side (host, client) correlation because the host must already hold the token at offer time to address its 0x08 trickles — so echoing costs one field and buys a direct lookup with no ambiguity when the same client attempts the same room twice.
+
+Full byte layouts for every changed message are in `docs/plans/trickle-ice.md` ("Settled cross-repo contract"), reproduced identically in `ArenaURP/docs/plans/trickle-ice.md`.
+
+- [x] Token wire form decided and written into `docs/plans/trickle-ice.md`, replacing the "one shared decision" note
+- [x] Offer-to-session correlation decided and written into the same plan, replacing the "pick one and mirror it" note
+- [x] `ArenaURP`'s trickle-ice plan states the identical contract for both
+- [x] Neither decision contradicts or extends ADR 0001 — both merely fill in detail it left open — so ADR 0001 is unchanged
