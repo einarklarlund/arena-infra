@@ -1,4 +1,5 @@
 const uWS = require('uWebSockets.js');
+const crypto = require('crypto');
 
 const Redis = require('ioredis');
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -338,7 +339,7 @@ function generateSessionToken() {
     const generateToken = () => {
         let token = '';
         for (let i = 0; i < SESSION_TOKEN_LENGTH; i++) {
-            token += SESSION_TOKEN_CHARS.charAt(Math.floor(Math.random() * SESSION_TOKEN_CHARS.length));
+            token += SESSION_TOKEN_CHARS.charAt(crypto.randomInt(SESSION_TOKEN_CHARS.length));
         }
         return token;
     };
