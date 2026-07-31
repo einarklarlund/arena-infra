@@ -25,6 +25,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379
       - ENABLE_CORS=${ENABLE_CORS:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
     depends_on:
       redis:
         condition: service_healthy

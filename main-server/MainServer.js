@@ -17,7 +17,7 @@ if (process.env.ENABLE_CORS === 'true') {
     // only use CORS on local development - it will be set by nginx otherwise
     const cors = require('cors');
     const corsOptions = {
-        origin: 'http://localhost:8080'
+        origin: (process.env.CORS_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean)
     };
     app.use(cors(corsOptions)); 
 }
