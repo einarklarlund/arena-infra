@@ -216,12 +216,28 @@ const app = uWS.App().ws('/Signal', {
             case receivedAnswerFromClient: // Signal server received a client's answer
                 // Read host's ID
                 const sendAnswer_targetPlayerID = messageData.readInt32LE(1);
-                const sendAnswer_remainingData = messageData.slice(5);
 
-                // The answer carries no token, so find the session it belongs to
-                const sendAnswer_session = findBoundSession(ws.playerID, sendAnswer_targetPlayerID);
+                // The client echoes the session token it was given at join-attempt
+                const sendAnswer_tokenLength = messageData[5];
+                const sendAnswer_token = messageData.toString('utf-8', 6, 6 + sendAnswer_tokenLength);
+                const sendAnswer_remainingData = messageData.slice(6 + sendAnswer_tokenLength);
+
+                const sendAnswer_session = sessions[sendAnswer_token];
                 if (!sendAnswer_session) {
-                    console.log(`Answer matched no live session from player ${ws.playerID} to host ${sendAnswer_targetPlayerID} - dropped.`);
+                    console.log(`Answer named no live session (token ${sendAnswer_token}) - dropped.`);
+                    break;
+                }
+                // Sender identity is by socket, so the client cannot be impersonated.
+                if (ws.playerID !== sendAnswer_session.clientPlayerID) {
+                    console.log(`Answer into session ${sendAnswer_token} from player ${ws.playerID}, not its client - dropped.`);
+                    break;
+                }
+                if (sendAnswer_targetPlayerID !== sendAnswer_session.hostPlayerID) {
+                    console.log(`Answer into session ${sendAnswer_token} targets player ${sendAnswer_targetPlayerID}, not its host - dropped.`);
+                    break;
+                }
+                if (sendAnswer_session.connectionId === undefined) {
+                    console.log(`Answer into session ${sendAnswer_token} carries no connection id yet - dropped.`);
                     break;
                 }
 
@@ -465,25 +481,6 @@ function relayCandidate(ws, messageData, direction) {
             sweepSession(token, 'both peers finished gathering');
         }
     }
-}
-
-/**
- * The session a client's answer belongs to. The answer carries no token (it
- * predates them and the contract leaves 0x05 unchanged), so the pair of signal
- * ids selects it - and only a session the host has already offered on, since
- * the connection ID being stamped is bound at offer time. Newest wins, which
- * is what the retired per-player map did when a host re-offered.
- */
-function findBoundSession(clientPlayerID, hostPlayerID) {
-    let found;
-    for (const token of Object.keys(sessions)) {
-        const session = sessions[token];
-        if (session.clientPlayerID !== clientPlayerID) continue;
-        if (session.hostPlayerID !== hostPlayerID) continue;
-        if (session.connectionId === undefined) continue;
-        if (!found || session.createdAt >= found.createdAt) found = session;
-    }
-    return found;
 }
 
 async function updateRedisRoom(roomID, hostID) {

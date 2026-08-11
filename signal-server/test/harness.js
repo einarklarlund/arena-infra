@@ -243,10 +243,15 @@ function buildOffer(targetClientPlayerID, connectionId, sessionToken, sdp) {
     ]);
 }
 
-function buildAnswer(targetHostPlayerID, sdp) {
+function buildAnswer(targetHostPlayerID, sessionToken, sdp) {
     const id = Buffer.alloc(4);
     id.writeInt32LE(targetHostPlayerID, 0);
-    return Buffer.concat([Buffer.from([OP.receivedAnswerFromClient]), id, Buffer.from(sdp, 'utf-8')]);
+    return Buffer.concat([
+        Buffer.from([OP.receivedAnswerFromClient]),
+        id,
+        lengthPrefixed(sessionToken),
+        Buffer.from(sdp, 'utf-8'),
+    ]);
 }
 
 /**
