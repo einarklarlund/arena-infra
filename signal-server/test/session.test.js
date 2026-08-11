@@ -37,7 +37,7 @@ test('a join attempt mints a session and hands the same token to both peers', as
 
         const notify = parseJoinNotify(await host.next());
         assert.equal(notify.opcode, OP.attemptToJoinRoom);
-        assert.ok(notify.clientSignalId > 0);
+        assert.ok(notify.clientPlayerID > 0);
         assert.equal(notify.sessionToken, callback.sessionToken);
 
         assert.equal(liveSessionCount(server), 1);
@@ -48,7 +48,7 @@ test('the session records the host and the client signal ids', async () => {
     await withServer(async (server) => {
         const { notify } = await establishJoinAttempt(server);
         // The host is player 1 and the client player 2 - they connected in that order.
-        assert.equal(notify.clientSignalId, 2);
+        assert.equal(notify.clientPlayerID, 2);
         assert.match(server.log(), /Session \w+ minted for host 1, client 2\./);
     });
 });
@@ -75,7 +75,7 @@ test('two concurrent join attempts on one room get distinct tokens', async () =>
         assert.notEqual(firstToken, secondToken);
         assert.equal(firstNotify.sessionToken, firstToken);
         assert.equal(secondNotify.sessionToken, secondToken);
-        assert.notEqual(firstNotify.clientSignalId, secondNotify.clientSignalId);
+        assert.notEqual(firstNotify.clientPlayerID, secondNotify.clientPlayerID);
 
         assert.equal(liveSessionCount(server), 2);
     });

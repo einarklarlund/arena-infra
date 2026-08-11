@@ -23,10 +23,10 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('a full attempt run to completion leaves the session table empty', async () => {
     await withServer(async (server) => {
-        const { host, client, sessionToken, hostSignalId, connectionId } =
+        const { host, client, sessionToken, hostPlayerID, connectionId } =
             await establishOfferedAttempt(server);
 
-        client.send(buildAnswer(hostSignalId, 'answer-sdp'));
+        client.send(buildAnswer(hostPlayerID, 'answer-sdp'));
         assert.equal(parseAnswerToHost(await host.next()).connectionId, connectionId);
 
         host.send(buildTrickle(OP.trickleToClient, sessionToken, 'candidate:host-1'));
@@ -47,9 +47,9 @@ test('a full attempt run to completion leaves the session table empty', async ()
 
 test('relaying the answer never sweeps the session - candidates still flow after it', async () => {
     await withServer(async (server) => {
-        const { host, client, sessionToken, hostSignalId } = await establishOfferedAttempt(server);
+        const { host, client, sessionToken, hostPlayerID } = await establishOfferedAttempt(server);
 
-        client.send(buildAnswer(hostSignalId, 'answer-sdp'));
+        client.send(buildAnswer(hostPlayerID, 'answer-sdp'));
         await host.next();
 
         await delay(100);

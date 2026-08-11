@@ -46,7 +46,7 @@ test('a join attempt succeeds for the client and notifies the host with the clie
 
         const notify = parseJoinNotify(await host.next());
         assert.equal(notify.opcode, OP.attemptToJoinRoom);
-        assert.ok(notify.clientSignalId > 0);
+        assert.ok(notify.clientPlayerID > 0);
     });
 });
 
@@ -94,16 +94,16 @@ test('the offer reaches the client and the answer reaches the host stamped with 
 
         client.send(buildAttemptToJoinRoom(roomCode));
         await client.next();
-        const { clientSignalId, sessionToken } = parseJoinNotify(await host.next());
+        const { clientPlayerID, sessionToken } = parseJoinNotify(await host.next());
 
-        host.send(buildOffer(clientSignalId, connectionId, sessionToken, 'fake-offer-sdp'));
+        host.send(buildOffer(clientPlayerID, connectionId, sessionToken, 'fake-offer-sdp'));
 
         const offer = parseOfferToClient(await client.next());
         assert.equal(offer.opcode, OP.receivedOfferFromHost);
         assert.equal(offer.sdp, 'fake-offer-sdp');
-        assert.ok(offer.hostSignalId > 0);
+        assert.ok(offer.hostPlayerID > 0);
 
-        client.send(buildAnswer(offer.hostSignalId, 'fake-answer-sdp'));
+        client.send(buildAnswer(offer.hostPlayerID, 'fake-answer-sdp'));
 
         const answer = parseAnswerToHost(await host.next());
         assert.equal(answer.opcode, OP.receivedAnswerFromClient);
@@ -125,9 +125,9 @@ test('the retired 0x06 opcode is unhandled and answered by nobody', async () => 
 
 test('an offer naming no live session is logged and dropped, not relayed', async () => {
     await withServer(async (server) => {
-        const { host, client, clientSignalId } = await establishJoinAttempt(server);
+        const { host, client, clientPlayerID } = await establishJoinAttempt(server);
 
-        host.send(buildOffer(clientSignalId, 7, 'aaaaaaaaaaaaaaaaaaaaaa', 'fake-offer-sdp'));
+        host.send(buildOffer(clientPlayerID, 7, 'aaaaaaaaaaaaaaaaaaaaaa', 'fake-offer-sdp'));
 
         await client.expectSilence();
         await host.expectSilence();
@@ -137,10 +137,10 @@ test('an offer naming no live session is logged and dropped, not relayed', async
 
 test('an offer from a socket that is not the session host is logged and dropped', async () => {
     await withServer(async (server) => {
-        const { client, clientSignalId, sessionToken } = await establishJoinAttempt(server);
+        const { client, clientPlayerID, sessionToken } = await establishJoinAttempt(server);
         const impostor = await server.connectPeer('impostor');
 
-        impostor.send(buildOffer(clientSignalId, 7, sessionToken, 'spoofed-offer-sdp'));
+        impostor.send(buildOffer(clientPlayerID, 7, sessionToken, 'spoofed-offer-sdp'));
 
         await client.expectSilence();
         await impostor.expectSilence();

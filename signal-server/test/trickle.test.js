@@ -148,7 +148,7 @@ test('a host that joins its own room trickles to itself on both opcodes', async 
         assert.equal(callback.sessionToken, notify.sessionToken);
 
         const sessionToken = callback.sessionToken;
-        peer.send(buildOffer(notify.clientSignalId, connectionId, sessionToken, 'offer-sdp'));
+        peer.send(buildOffer(notify.clientPlayerID, connectionId, sessionToken, 'offer-sdp'));
         assert.equal(parseOfferToClient(await peer.next()).sdp, 'offer-sdp');
 
         peer.send(buildTrickle(OP.trickleToHost, sessionToken, 'candidate:loop-to-host'));

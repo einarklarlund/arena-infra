@@ -33,7 +33,7 @@ const rooms = {}; //room key - host ws
 // Signaling sessions: the server's authoritative record of one peer-connection
 // attempt, named on the wire by an opaque token. Routing state only - it does
 // not identify a player, and is swept when the attempt establishes or fails.
-const sessions = {}; //session token - { hostSignalId, clientSignalId, connectionId, createdAt, hostDoneGathering, clientDoneGathering }
+const sessions = {}; //session token - { hostPlayerID, clientPlayerID, connectionId, createdAt, hostDoneGathering, clientDoneGathering }
 
 const createRoom = 0x01; //responded to directly with the room code
 const attemptToJoinRoom = 0x02; //responded to directly if join code is valid and if host has been notified
@@ -174,7 +174,7 @@ const app = uWS.App().ws('/Signal', {
 
             case receivedOfferFromHost: // Signal server received offer from host
                 // Read connecting client's ID
-                const sendOffer_targetPlayerSignalID = messageData.readInt32LE(1);
+                const sendOffer_targetPlayerID = messageData.readInt32LE(1);
 
                 // Read the ID of the connection between the host and connecting client
                 const sendOffer_targetPlayerConnectionID = messageData.readInt32LE(5);
@@ -190,12 +190,12 @@ const app = uWS.App().ws('/Signal', {
                     break;
                 }
                 // Sender identity is by socket, so the host cannot be impersonated.
-                if (ws.playerID !== sendOffer_session.hostSignalId) {
+                if (ws.playerID !== sendOffer_session.hostPlayerID) {
                     console.log(`Offer into session ${sendOffer_token} from player ${ws.playerID}, not its host - dropped.`);
                     break;
                 }
-                if (sendOffer_targetPlayerSignalID !== sendOffer_session.clientSignalId) {
-                    console.log(`Offer into session ${sendOffer_token} targets player ${sendOffer_targetPlayerSignalID}, not its client - dropped.`);
+                if (sendOffer_targetPlayerID !== sendOffer_session.clientPlayerID) {
+                    console.log(`Offer into session ${sendOffer_token} targets player ${sendOffer_targetPlayerID}, not its client - dropped.`);
                     break;
                 }
 
@@ -209,7 +209,7 @@ const app = uWS.App().ws('/Signal', {
                 responseBuffer.writeInt32LE(ws.playerID, 1);
                 sendOffer_remainingData.copy(responseBuffer, 5);
 
-                sendData(playerID[sendOffer_session.clientSignalId], responseBuffer);
+                sendData(playerID[sendOffer_session.clientPlayerID], responseBuffer);
 
                 break;
 
@@ -232,7 +232,7 @@ const app = uWS.App().ws('/Signal', {
                 responseBuffer.writeInt32LE(sendAnswer_session.connectionId, 1);
                 sendAnswer_remainingData.copy(responseBuffer, 5);
 
-                sendData(playerID[sendAnswer_session.hostSignalId], responseBuffer);
+                sendData(playerID[sendAnswer_session.hostPlayerID], responseBuffer);
 
                 break;
 
@@ -353,19 +353,19 @@ function generateSessionToken() {
 }
 
 /** Record one peer-connection attempt and return the token that names it. */
-function mintSession(hostSignalId, clientSignalId) {
+function mintSession(hostPlayerID, clientPlayerID) {
     const token = generateSessionToken();
 
     sessions[token] = {
-        hostSignalId: hostSignalId,
-        clientSignalId: clientSignalId,
+        hostPlayerID: hostPlayerID,
+        clientPlayerID: clientPlayerID,
         connectionId: undefined, // the host assigns it, at offer time
         createdAt: Date.now(),
         hostDoneGathering: false,
         clientDoneGathering: false,
     };
 
-    console.log(`Session ${token} minted for host ${hostSignalId}, client ${clientSignalId}. ${Object.keys(sessions).length} live.`);
+    console.log(`Session ${token} minted for host ${hostPlayerID}, client ${clientPlayerID}. ${Object.keys(sessions).length} live.`);
 
     return token;
 }
@@ -384,11 +384,11 @@ function sweepSession(token, reason) {
 }
 
 /** Either member socket going away ends the attempt. */
-function sweepSessionsOfPlayer(signalId) {
+function sweepSessionsOfPlayer(departedPlayerID) {
     for (const token of Object.keys(sessions)) {
         const session = sessions[token];
-        if (session.hostSignalId === signalId || session.clientSignalId === signalId) {
-            sweepSession(token, `player ${signalId} disconnected`);
+        if (session.hostPlayerID === departedPlayerID || session.clientPlayerID === departedPlayerID) {
+            sweepSession(token, `player ${departedPlayerID} disconnected`);
         }
     }
 }
@@ -436,8 +436,8 @@ function relayCandidate(ws, messageData, direction) {
         return;
     }
 
-    const sender = direction === trickleToClient ? session.hostSignalId : session.clientSignalId;
-    const recipient = direction === trickleToClient ? session.clientSignalId : session.hostSignalId;
+    const sender = direction === trickleToClient ? session.hostPlayerID : session.clientPlayerID;
+    const recipient = direction === trickleToClient ? session.clientPlayerID : session.hostPlayerID;
 
     if (ws.playerID !== sender) {
         console.log(`Trickle into session ${token} from player ${ws.playerID}, not its ${direction === trickleToClient ? 'host' : 'client'} - dropped.`);
@@ -474,12 +474,12 @@ function relayCandidate(ws, messageData, direction) {
  * the connection ID being stamped is bound at offer time. Newest wins, which
  * is what the retired per-player map did when a host re-offered.
  */
-function findBoundSession(clientSignalId, hostSignalId) {
+function findBoundSession(clientPlayerID, hostPlayerID) {
     let found;
     for (const token of Object.keys(sessions)) {
         const session = sessions[token];
-        if (session.clientSignalId !== clientSignalId) continue;
-        if (session.hostSignalId !== hostSignalId) continue;
+        if (session.clientPlayerID !== clientPlayerID) continue;
+        if (session.hostPlayerID !== hostPlayerID) continue;
         if (session.connectionId === undefined) continue;
         if (!found || session.createdAt >= found.createdAt) found = session;
     }

@@ -231,9 +231,9 @@ function buildAttemptToJoinRoom(roomCode) {
     return Buffer.concat([Buffer.from([OP.attemptToJoinRoom]), lengthPrefixed(roomCode)]);
 }
 
-function buildOffer(targetClientSignalId, connectionId, sessionToken, sdp) {
+function buildOffer(targetClientPlayerID, connectionId, sessionToken, sdp) {
     const ids = Buffer.alloc(8);
-    ids.writeInt32LE(targetClientSignalId, 0);
+    ids.writeInt32LE(targetClientPlayerID, 0);
     ids.writeInt32LE(connectionId, 4);
     return Buffer.concat([
         Buffer.from([OP.receivedOfferFromHost]),
@@ -243,9 +243,9 @@ function buildOffer(targetClientSignalId, connectionId, sessionToken, sdp) {
     ]);
 }
 
-function buildAnswer(targetHostSignalId, sdp) {
+function buildAnswer(targetHostPlayerID, sdp) {
     const id = Buffer.alloc(4);
-    id.writeInt32LE(targetHostSignalId, 0);
+    id.writeInt32LE(targetHostPlayerID, 0);
     return Buffer.concat([Buffer.from([OP.receivedAnswerFromClient]), id, Buffer.from(sdp, 'utf-8')]);
 }
 
@@ -282,7 +282,7 @@ function parseJoinRoomCallback(message) {
 function parseJoinNotify(message) {
     return {
         opcode: message[0],
-        clientSignalId: message.readInt32LE(1),
+        clientPlayerID: message.readInt32LE(1),
         sessionToken: readLengthPrefixed(message, 5).value,
     };
 }
@@ -290,7 +290,7 @@ function parseJoinNotify(message) {
 function parseOfferToClient(message) {
     return {
         opcode: message[0],
-        hostSignalId: message.readInt32LE(1),
+        hostPlayerID: message.readInt32LE(1),
         sdp: message.toString('utf-8', 5),
     };
 }
@@ -335,7 +335,7 @@ async function establishJoinAttempt(server) {
         roomCode,
         callback,
         notify,
-        clientSignalId: notify.clientSignalId,
+        clientPlayerID: notify.clientPlayerID,
         sessionToken: callback.sessionToken,
     };
 }
@@ -347,10 +347,10 @@ async function establishJoinAttempt(server) {
 async function establishOfferedAttempt(server, { connectionId = 42 } = {}) {
     const attempt = await establishJoinAttempt(server);
 
-    attempt.host.send(buildOffer(attempt.clientSignalId, connectionId, attempt.sessionToken, 'offer-sdp'));
+    attempt.host.send(buildOffer(attempt.clientPlayerID, connectionId, attempt.sessionToken, 'offer-sdp'));
     const offer = parseOfferToClient(await attempt.client.next());
 
-    return { ...attempt, connectionId, hostSignalId: offer.hostSignalId };
+    return { ...attempt, connectionId, hostPlayerID: offer.hostPlayerID };
 }
 
 /**
