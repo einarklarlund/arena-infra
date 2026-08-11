@@ -37,7 +37,8 @@ Byte layouts (integers little-endian, as today):
 | `attemptToJoinRoom` 0x02 — host notify | server→host | `0x02` `int32 clientSignalId` `[tok]` |
 | `receivedOfferFromHost` 0x04 | host→server | `0x04` `int32 targetClientSignalId` `int32 connectionId` `[tok]` `sdp…` |
 | `receivedOfferFromHost` 0x04 | server→client | `0x04` `int32 hostSignalId` `sdp…` *(unchanged)* |
-| `receivedAnswerFromClient` 0x05 | both | *(unchanged)* |
+| `receivedAnswerFromClient` 0x05 | client→server | `0x05` `int32 targetPlayerId` `[tok]` `sdp…` |
+| `receivedAnswerFromClient` 0x05 | server→host | `0x05` `int32 connectionId` `sdp…` *(unchanged)* |
 | `trickleToClient` 0x08 | host→server | `0x08` `[tok]` `candidate…` |
 | `trickleToClient` 0x08 | server→client | `0x08` `int32 connectionId` `candidate…` |
 | `trickleToHost` 0x09 | client→server | `0x09` `[tok]` `candidate…` |
