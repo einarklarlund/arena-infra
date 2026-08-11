@@ -439,6 +439,27 @@ setInterval(() => {
 }, SESSION_SWEEP_INTERVAL_MS);
 
 /**
+ * Who may send on each trickle opcode, who receives, and which half of the
+ * session's gathering state it completes. One row per opcode so the pairing can
+ * be checked at a glance rather than read across four branches - this is the
+ * anti-spoof check, so that matters.
+ */
+const relayRoles = {
+    [trickleToClient]: {
+        label: 'host',
+        sender: 'hostPlayerID',
+        recipient: 'clientPlayerID',
+        doneGathering: 'hostDoneGathering',
+    },
+    [trickleToHost]: {
+        label: 'client',
+        sender: 'clientPlayerID',
+        recipient: 'hostPlayerID',
+        doneGathering: 'clientDoneGathering',
+    },
+};
+
+/**
  * Relay one candidate to the opposite member of the session the token names,
  * stamping the session's connection id so neither peer can spoof which
  * connection a candidate belongs to.
@@ -456,6 +477,8 @@ setInterval(() => {
  * zero remaining bytes is the end-of-candidates marker, relayed like any other.
  */
 function relayCandidate(ws, messageData, direction) {
+    const role = relayRoles[direction];
+
     const tokenField = readLengthPrefixed(messageData, 1);
     const token = tokenField.value;
     const candidateData = messageData.slice(tokenField.offset);
@@ -466,11 +489,8 @@ function relayCandidate(ws, messageData, direction) {
         return;
     }
 
-    const sender = direction === trickleToClient ? session.hostPlayerID : session.clientPlayerID;
-    const recipient = direction === trickleToClient ? session.clientPlayerID : session.hostPlayerID;
-
-    if (ws.playerID !== sender) {
-        console.log(`Trickle into session ${token} from player ${ws.playerID}, not its ${direction === trickleToClient ? 'host' : 'client'} - dropped.`);
+    if (ws.playerID !== session[role.sender]) {
+        console.log(`Trickle into session ${token} from player ${ws.playerID}, not its ${role.label} - dropped.`);
         return;
     }
     if (session.connectionId === undefined) {
@@ -483,13 +503,12 @@ function relayCandidate(ws, messageData, direction) {
     responseBuffer.writeInt32LE(session.connectionId, 1);
     candidateData.copy(responseBuffer, 5);
 
-    sendData(playerID[recipient], responseBuffer);
+    sendData(playerID[session[role.recipient]], responseBuffer);
 
     // An empty candidate is end-of-candidates. Once both peers have sent theirs
     // the attempt has concluded gathering and the route is no longer needed.
     if (candidateData.length === 0) {
-        if (direction === trickleToClient) session.hostDoneGathering = true;
-        else session.clientDoneGathering = true;
+        session[role.doneGathering] = true;
 
         if (session.hostDoneGathering && session.clientDoneGathering) {
             sweepSession(token, 'both peers finished gathering');
