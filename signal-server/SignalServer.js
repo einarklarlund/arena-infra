@@ -30,9 +30,7 @@ const playerID = {}; //uniqueID - player
 
 const rooms = {}; //room key - host ws
 
-// Signaling sessions: the server's authoritative record of one peer-connection
-// attempt, named on the wire by an opaque token. Routing state only - it does
-// not identify a player, and is swept when the attempt establishes or fails.
+// Signaling sessions - see docs/adr/0001 and the CONTEXT.md glossary.
 const sessions = {}; //session token - { hostPlayerID, clientPlayerID, connectionId, createdAt, hostDoneGathering, clientDoneGathering }
 
 const createRoom = 0x01; //responded to directly with the room code
@@ -139,13 +137,11 @@ const app = uWS.App().ws('/Signal', {
                         rooms[joinRoom_RoomID].playerID,
                         ws.playerID
                     );
-                    // Prepare success response for connecting client, naming the session
                     responseBuffer = Buffer.concat([
                         Buffer.from([joinRoomCallback, 1]),
                         lengthPrefixed(joinRoom_SessionToken),
                     ]);
 
-                    // Notify host that a client is connecting, naming the same session
                     const joinRoom_NotifyHeader = Buffer.alloc(1 + 4);
                     joinRoom_NotifyHeader[0] = attemptToJoinRoom;
                     joinRoom_NotifyHeader.writeInt32LE(ws.playerID, 1);
@@ -169,10 +165,8 @@ const app = uWS.App().ws('/Signal', {
                 break;
 
             case receivedOfferFromHost: // Signal server received offer from host
-                // Read connecting client's ID
                 const sendOffer_targetPlayerID = messageData.readInt32LE(1);
 
-                // Read the ID of the connection between the host and connecting client
                 const sendOffer_targetPlayerConnectionID = messageData.readInt32LE(5);
 
                 // The host echoes the session token it was given at join-attempt
@@ -199,7 +193,6 @@ const app = uWS.App().ws('/Signal', {
                 // trickle directions stamp, so neither peer can spoof it.
                 sendOffer_session.connectionId = sendOffer_targetPlayerConnectionID;
 
-                // Tell connecting client that a host has sent an offer
                 responseBuffer = Buffer.alloc(1 + 4 + sendOffer_remainingData.length);
                 responseBuffer[0] = receivedOfferFromHost;
                 responseBuffer.writeInt32LE(ws.playerID, 1);
@@ -210,7 +203,6 @@ const app = uWS.App().ws('/Signal', {
                 break;
 
             case receivedAnswerFromClient: // Signal server received a client's answer
-                // Read host's ID
                 const sendAnswer_targetPlayerID = messageData.readInt32LE(1);
 
                 // The client echoes the session token it was given at join-attempt
@@ -239,7 +231,6 @@ const app = uWS.App().ws('/Signal', {
 
                 responseBuffer = Buffer.alloc(1 + 4 + sendAnswer_remainingData.length);
 
-                // Give the connection ID to the host
                 responseBuffer[0] = receivedAnswerFromClient;
                 responseBuffer.writeInt32LE(sendAnswer_session.connectionId, 1);
                 sendAnswer_remainingData.copy(responseBuffer, 5);
@@ -268,7 +259,6 @@ const app = uWS.App().ws('/Signal', {
 
         delete playerID[ws.playerID];
 
-        // Every attempt this socket was a member of is over.
         sweepSessionsOfPlayer(ws.playerID);
 
         if(ws.hostRoomID != -1){
@@ -401,10 +391,8 @@ function mintSession(hostPlayerID, clientPlayerID) {
 }
 
 /**
- * A signaling session is routing state for one attempt and must not outlive it.
- * It is swept when the attempt establishes or fails, never merely because the
- * answer was relayed - candidates keep flowing after the answer, which is the
- * whole point of trickle.
+ * Sweep at establish-or-fail (docs/adr/0001) - never merely because the answer
+ * was relayed, since candidates keep flowing after it.
  */
 function sweepSession(token, reason) {
     if (!sessions.hasOwnProperty(token)) return;
@@ -460,10 +448,6 @@ const relayRoles = {
 };
 
 /**
- * Relay one candidate to the opposite member of the session the token names,
- * stamping the session's connection id so neither peer can spoof which
- * connection a candidate belongs to.
- *
  * The message carries no target - the token alone selects the route - so the
  * membership check by socket is the only thing standing between a prober and
  * another pair's routing state. A rejected trickle is logged and dropped with
