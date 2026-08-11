@@ -116,11 +116,10 @@ const app = uWS.App().ws('/Signal', {
                 }, 30000); // Heartbeat every 30 seconds
 
                 // Respond to host with room ID
-                const roomIDLength = Buffer.byteLength(roomID);
-                responseBuffer = Buffer.alloc(2 + roomIDLength);
-                responseBuffer[0] = createRoom;
-                responseBuffer[1] = roomIDLength;
-                responseBuffer.write(roomID, 2, 'utf-8');
+                responseBuffer = Buffer.concat([
+                    Buffer.from([createRoom]),
+                    lengthPrefixed(roomID),
+                ]);
 
                 sendData(ws, responseBuffer);
 
@@ -128,10 +127,7 @@ const app = uWS.App().ws('/Signal', {
 
             case attemptToJoinRoom: // A client wants to join a room
                 // Parse incoming room ID
-                const joinRoom_RoomIDLength = messageData[1];
-                const joinRoom_RoomID = messageData
-                    .toString('utf-8', 2, 2 + joinRoom_RoomIDLength)
-                    .toUpperCase();
+                const joinRoom_RoomID = readLengthPrefixed(messageData, 1).value.toUpperCase();
 
                 if (rooms.hasOwnProperty(joinRoom_RoomID)) {
                     // MISSING - cleanup any room the rooms that the client was already
@@ -143,21 +139,21 @@ const app = uWS.App().ws('/Signal', {
                         rooms[joinRoom_RoomID].playerID,
                         ws.playerID
                     );
-                    const joinRoom_TokenLength = Buffer.byteLength(joinRoom_SessionToken);
-
                     // Prepare success response for connecting client, naming the session
-                    responseBuffer = Buffer.alloc(2 + 1 + joinRoom_TokenLength);
-                    responseBuffer[0] = joinRoomCallback;
-                    responseBuffer[1] = 1;
-                    responseBuffer[2] = joinRoom_TokenLength;
-                    responseBuffer.write(joinRoom_SessionToken, 3, 'utf-8');
+                    responseBuffer = Buffer.concat([
+                        Buffer.from([joinRoomCallback, 1]),
+                        lengthPrefixed(joinRoom_SessionToken),
+                    ]);
 
                     // Notify host that a client is connecting, naming the same session
-                    notifyBuffer = Buffer.alloc(1 + 4 + 1 + joinRoom_TokenLength);
-                    notifyBuffer[0] = attemptToJoinRoom;
-                    notifyBuffer.writeInt32LE(ws.playerID, 1);
-                    notifyBuffer[5] = joinRoom_TokenLength;
-                    notifyBuffer.write(joinRoom_SessionToken, 6, 'utf-8');
+                    const joinRoom_NotifyHeader = Buffer.alloc(1 + 4);
+                    joinRoom_NotifyHeader[0] = attemptToJoinRoom;
+                    joinRoom_NotifyHeader.writeInt32LE(ws.playerID, 1);
+
+                    const notifyBuffer = Buffer.concat([
+                        joinRoom_NotifyHeader,
+                        lengthPrefixed(joinRoom_SessionToken),
+                    ]);
 
                     sendData(playerID[rooms[joinRoom_RoomID].playerID], notifyBuffer);
                 } else {
@@ -180,9 +176,9 @@ const app = uWS.App().ws('/Signal', {
                 const sendOffer_targetPlayerConnectionID = messageData.readInt32LE(5);
 
                 // The host echoes the session token it was given at join-attempt
-                const sendOffer_tokenLength = messageData[9];
-                const sendOffer_token = messageData.toString('utf-8', 10, 10 + sendOffer_tokenLength);
-                const sendOffer_remainingData = messageData.slice(10 + sendOffer_tokenLength);
+                const sendOffer_tokenField = readLengthPrefixed(messageData, 9);
+                const sendOffer_token = sendOffer_tokenField.value;
+                const sendOffer_remainingData = messageData.slice(sendOffer_tokenField.offset);
 
                 const sendOffer_session = sessions[sendOffer_token];
                 if (!sendOffer_session) {
@@ -218,9 +214,9 @@ const app = uWS.App().ws('/Signal', {
                 const sendAnswer_targetPlayerID = messageData.readInt32LE(1);
 
                 // The client echoes the session token it was given at join-attempt
-                const sendAnswer_tokenLength = messageData[5];
-                const sendAnswer_token = messageData.toString('utf-8', 6, 6 + sendAnswer_tokenLength);
-                const sendAnswer_remainingData = messageData.slice(6 + sendAnswer_tokenLength);
+                const sendAnswer_tokenField = readLengthPrefixed(messageData, 5);
+                const sendAnswer_token = sendAnswer_tokenField.value;
+                const sendAnswer_remainingData = messageData.slice(sendAnswer_tokenField.offset);
 
                 const sendAnswer_session = sessions[sendAnswer_token];
                 if (!sendAnswer_session) {
@@ -312,6 +308,24 @@ const app = uWS.App().ws('/Signal', {
         process.exit(1);
     }
 });
+
+// Every string this protocol frames - room code, session token - is one uint8 length byte
+// followed by that many UTF-8 bytes. Never fixed width, never null terminated. The game's
+// SessionToken helper and the test harness are the same pair one language over.
+
+function lengthPrefixed(value) {
+    const bytes = Buffer.from(value, 'utf-8');
+    return Buffer.concat([Buffer.from([bytes.length]), bytes]);
+}
+
+/** The framed string at `offset`, plus the offset of whatever follows it. */
+function readLengthPrefixed(buffer, offset) {
+    const length = buffer[offset];
+    return {
+        value: buffer.toString('utf-8', offset + 1, offset + 1 + length),
+        offset: offset + 1 + length,
+    };
+}
 
 const BACKPRESSURE_THRESHOLD = 1024 * 1024; // 1MB
 
@@ -442,9 +456,9 @@ setInterval(() => {
  * zero remaining bytes is the end-of-candidates marker, relayed like any other.
  */
 function relayCandidate(ws, messageData, direction) {
-    const tokenLength = messageData[1];
-    const token = messageData.toString('utf-8', 2, 2 + tokenLength);
-    const candidateData = messageData.slice(2 + tokenLength);
+    const tokenField = readLengthPrefixed(messageData, 1);
+    const token = tokenField.value;
+    const candidateData = messageData.slice(tokenField.offset);
 
     const session = sessions[token];
     if (!session) {
